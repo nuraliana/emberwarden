@@ -52,11 +52,11 @@ export function createRenderer(canvas) {
     g.addColorStop(1, PALETTE.bg0);
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, FIELD.width, FIELD.height);
-    // Soft nebula blobs for depth: violet, teal and ember, barely there.
+    // Soft nebula blobs for depth: violet, teal and ember.
     const nebulae = [
-      { x: 170, y: 130, r: 220, c: 'rgba(107, 79, 216, 0.13)' },
-      { x: 820, y: 460, r: 260, c: 'rgba(45, 140, 160, 0.10)' },
-      { x: 760, y: 110, r: 180, c: 'rgba(255, 179, 71, 0.07)' },
+      { x: 170, y: 130, r: 220, c: 'rgba(107, 79, 216, 0.20)' },
+      { x: 820, y: 460, r: 260, c: 'rgba(45, 140, 160, 0.16)' },
+      { x: 760, y: 110, r: 180, c: 'rgba(255, 179, 71, 0.12)' },
     ];
     for (const n of nebulae) {
       const ng = ctx.createRadialGradient(n.x, n.y, 10, n.x, n.y, n.r);
@@ -68,7 +68,7 @@ export function createRenderer(canvas) {
     // Distant embers drifting up.
     ctx.save();
     ctx.globalAlpha = 0.5;
-    for (let i = 0; i < 26; i += 1) {
+    for (let i = 0; i < 60; i += 1) {
       const x = ((i * 173.3 + state.time * 12) % (FIELD.width + 40)) - 20;
       const y = FIELD.height - ((i * 97.7 + state.time * 26) % (FIELD.height + 40));
       ctx.fillStyle = i % 3 === 0 ? PALETTE.lantern : PALETTE.arenaGlow;
@@ -291,6 +291,13 @@ export function createRenderer(canvas) {
 
   function drawBullets(state) {
     for (const b of state.bullets) {
+      // Short trail so a volley reads as fire, not dots.
+      ctx.strokeStyle = 'rgba(255, 217, 122, 0.45)';
+      ctx.lineWidth = b.r + 1;
+      ctx.beginPath();
+      ctx.moveTo(b.x - b.vx * 0.03, b.y - b.vy * 0.03);
+      ctx.lineTo(b.x, b.y);
+      ctx.stroke();
       ctx.fillStyle = PALETTE.bullet;
       ctx.beginPath();
       ctx.arc(b.x, b.y, b.r + 2, 0, TAU);
@@ -365,6 +372,14 @@ export function createRenderer(canvas) {
   function drawHud(state, best, muted) {
     const p = state.player;
     ctx.textBaseline = 'alphabetic';
+    // Translucent plates behind the HUD blocks, so drifting foes and embers
+    // never sit on top of the score, the flames or the kill count.
+    ctx.fillStyle = 'rgba(6, 6, 20, 0.5)';
+    rr(ctx, 12, 14, 196, 92, 10);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(6, 6, 20, 0.5)';
+    rr(ctx, FIELD.width - 222, 14, 210, 76, 10);
+    ctx.fill();
     // Score, top left.
     ctx.textAlign = 'left';
     ctx.fillStyle = PALETTE.text;
@@ -386,6 +401,14 @@ export function createRenderer(canvas) {
     ctx.fillStyle = PALETTE.text;
     ctx.font = 'bold 20px "Trebuchet MS", sans-serif';
     ctx.fillText(state.wave > 0 ? 'WAVE ' + state.wave : 'EMBERWARDEN', FIELD.width / 2, 38);
+    // Foes still to come in this wave (spawn queue + arena), so the fight
+    // always shows its progress; hidden while a boss holds the banner.
+    if (state.phase === 'fight' && !state.boss) {
+      const foesLeft = state.spawnQueue.length + state.enemies.filter((e) => !e.decorative).length;
+      ctx.font = '13px "Trebuchet MS", sans-serif';
+      ctx.fillStyle = PALETTE.dim;
+      ctx.fillText(foesLeft + (foesLeft === 1 ? ' FOE LEFT' : ' FOES LEFT'), FIELD.width / 2, 60);
+    }
     // Boss bar.
     if (state.boss) {
       const name = state.boss.kind === 'matriarch' ? 'THE GLOOM MATRIARCH' : 'THE HOLLOW KING';
@@ -463,17 +486,38 @@ export function createRenderer(canvas) {
   }
 
   function drawTitle(state, best) {
-    overlay(0.55);
-    drawLanternGlow(FIELD.width / 2, 150, 220, 0.25);
-    centeredTitle('EMBERWARDEN', 168, 64, PALETTE.lantern);
-    centeredLine('The last ember-keeper defends the Lantern of Dawn.', 206, 18, PALETTE.text);
-    centeredLine('Hold the light. Break the Gloom. Survive ten waves.', 232, 15, PALETTE.dim);
-    if (best > 0) centeredLine('BEST SCORE  ' + best, 268, 16, PALETTE.gold, true);
-    centeredLine('WASD / Arrows — move      Mouse — aim      Click / Space — fire', 330, 16, PALETTE.text);
-    centeredLine('Shift — dash      P — pause      M — mute', 356, 16, PALETTE.text);
-    centeredLine('Clear a wave, choose an ember, face the boss on waves 5 and 10.', 382, 15, PALETTE.dim);
+    overlay(0.7);
+    drawLanternGlow(FIELD.width / 2, 132, 220, 0.25);
+    centeredTitle('EMBERWARDEN', 132, 60, PALETTE.lantern);
+    centeredLine('The last ember-keeper defends the Lantern of Dawn.', 166, 18, PALETTE.text);
+    centeredLine('Hold the light. Break the Gloom. Survive ten waves.', 190, 15, PALETTE.dim);
+    // Goal / win / lose, on one readable plate: the whole game in three lines.
+    ctx.fillStyle = 'rgba(6, 6, 20, 0.55)';
+    rr(ctx, 170, 208, 620, 96, 12);
+    ctx.fill();
+    const rules = [
+      { label: 'GOAL', color: PALETTE.gold, text: 'Guard the Lantern of Dawn against the Gloom.' },
+      { label: 'WIN', color: PALETTE.shield, text: 'Break the Hollow King on wave 10 — then endless night.' },
+      { label: 'LOSE', color: PALETTE.heart, text: 'The light dies when your last flame goes out.' },
+    ];
+    rules.forEach((rule, i) => {
+      const y = 236 + i * 26;
+      ctx.textAlign = 'right';
+      ctx.fillStyle = rule.color;
+      ctx.font = 'bold 15px "Trebuchet MS", sans-serif';
+      ctx.fillText(rule.label, 268, y);
+      ctx.textAlign = 'left';
+      ctx.fillStyle = PALETTE.text;
+      ctx.font = '15px "Trebuchet MS", sans-serif';
+      ctx.fillText(rule.text, 282, y);
+    });
+    centeredLine('4 FOES  ·  2 BOSSES  ·  10 EMBER UPGRADES  ·  COMBO ×8  ·  DASH  ·  ENDLESS', 336, 14, PALETTE.gold);
+    if (best > 0) centeredLine('BEST SCORE  ' + best, 366, 16, PALETTE.gold, true);
+    centeredLine('WASD / Arrows — move      Mouse — aim      Click / Space — fire', 410, 16, PALETTE.text);
+    centeredLine('Shift — dash      P — pause      M — mute', 436, 16, PALETTE.text);
+    centeredLine('Clear a wave, choose an ember, face the boss on waves 5 and 10.', 462, 15, PALETTE.dim);
     ctx.globalAlpha = 0.65 + 0.35 * Math.sin(state.time * 3);
-    centeredLine('—  PRESS ENTER OR CLICK TO BEGIN  —', 440, 18, PALETTE.gold, true);
+    centeredLine('—  PRESS ENTER OR CLICK TO BEGIN  —', 516, 18, PALETTE.gold, true);
     ctx.globalAlpha = 1;
   }
 
@@ -527,9 +571,9 @@ export function createRenderer(canvas) {
   }
 
   function drawStats(state, best, y) {
-    const acc = state.shotsFired > 0 ? Math.round((100 * state.hitsLanded) / state.shotsFired) : 0;
+    const acc = state.shotsFired > 0 ? Math.round((100 * state.hitsLanded) / state.shotsFired) : null;
     centeredLine('SCORE  ' + state.score, y, 22, PALETTE.gold, true);
-    centeredLine('Wave reached ' + Math.max(1, state.wave) + '    ·    Kills ' + state.kills + '    ·    Accuracy ' + acc + '%', y + 36, 16, PALETTE.text);
+    centeredLine('Wave reached ' + Math.max(1, state.wave) + '    ·    Kills ' + state.kills + '    ·    Accuracy ' + (acc === null ? '—' : acc + '%'), y + 36, 16, PALETTE.text);
     centeredLine('Best ' + Math.max(best, state.score), y + 62, 16, PALETTE.dim);
   }
 
@@ -589,7 +633,10 @@ export function createRenderer(canvas) {
       ctx.lineTo(ui.mouseX, ui.mouseY + 14);
       ctx.stroke();
     }
-    if (screen !== SCREEN_TITLE) drawHud(state, best, muted);
+    // The HUD belongs to the fight only: on the upgrade, game-over and
+    // victory screens it would show stale controls (DASH READY) and a
+    // duplicate score behind the overlay.
+    if (screen !== SCREEN_TITLE && screen !== SCREEN_UPGRADE && screen !== SCREEN_OVER && screen !== SCREEN_VICTORY) drawHud(state, best, muted);
     if (screen === SCREEN_TITLE) drawTitle(state, best);
     else if (screen === SCREEN_UPGRADE) drawUpgrade(state, ui);
     else if (screen === SCREEN_PAUSED) drawPaused();

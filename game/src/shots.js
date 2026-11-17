@@ -3,7 +3,7 @@
 // autopilot (flee what is close, chase the nearest foe, fire at it), so the frame
 // is what a real game looks like and the same seed always gives the same frame.
 import { FIELD, STEP } from './config.js';
-import { SCREEN_OVER, SCREEN_PLAY, SCREEN_TITLE } from './render.js';
+import { SCREEN_OVER, SCREEN_PLAY, SCREEN_TITLE, SCREEN_UPGRADE } from './render.js';
 
 const START_SECONDS = 5;
 const BOSS_SECONDS = 8;
@@ -101,12 +101,24 @@ function simulate(world, seconds, skill) {
 /**
  * Set `world` to the named scene and return the screen to draw over it
  * and the best score to show. Unknown names stage the title.
+ * The four handed-in shots: start (title), play (mid-fight), boss (wave 5),
+ * draft (the 1-of-3 ember choice after a cleared wave).
  */
 export function stageShot(name, world) {
   world.reset();
-  if (name !== 'play' && name !== 'boss' && name !== 'end') {
-    for (let i = 0; i < START_SECONDS / STEP; i += 1) world.step(STEP, autopilot(world.state, 'careful'), true);
-    return { screen: SCREEN_TITLE, best: 0 };
+  if (name === 'draft') {
+    // Clear wave 2 for real, then stop on the upgrade screen itself: the
+    // draft is the game's main strategic choice, so it earns a shot.
+    world.jumpToWave(2, []);
+    for (let i = 0; i < 180 / STEP; i += 1) {
+      world.step(STEP, autopilot(world.state, 'careful'), true);
+      if (world.state.phase === 'upgrade') break;
+      if (world.state.phase === 'over') break;
+    }
+    return {
+      screen: world.state.phase === 'upgrade' ? SCREEN_UPGRADE : SCREEN_PLAY,
+      best: world.state.score,
+    };
   }
   if (name === 'boss') {
     world.jumpToWave(5, []);
@@ -129,15 +141,31 @@ export function stageShot(name, world) {
     void over;
     return { screen: SCREEN_OVER, best: world.state.score };
   }
-  // play: a mid-fight frame, stopped the moment the arena is busy (six foes
-  // on screen) so the shot shows the fight at its fullest, not its tail.
-  world.startRun();
-  for (let i = 0; i < 20 / STEP; i += 1) {
-    world.step(STEP, autopilot(world.state, 'careful'), true);
-    if (world.state.phase === 'over') break;
-    if (world.state.phase === 'upgrade') world.applyUpgrade(world.state.choices[0].id);
-    if (world.state.phase === 'fight' && world.state.enemies.length >= 5) break;
+  if (name === 'play') {
+    // A mid-fight frame at wave 3, already upgraded (split + rapid + heavy).
+    // Two passes: first let the trickle fill the arena (eight foes) without
+    // firing, then open fire for 1.5 s so bolts, bursts and score text are
+    // all on screen at once. Stopping on a kill-count alone never worked —
+    // the autopilot kills faster than the trickle spawns.
+    world.jumpToWave(3, ['split', 'rapid', 'heavy']);
+    for (let i = 0; i < 20 / STEP; i += 1) {
+      const input = autopilot(world.state, 'careful');
+      input.firing = false;
+      world.step(STEP, input, true);
+      if (world.state.phase === 'over') break;
+      if (world.state.phase === 'fight' && world.state.enemies.length >= 8) break;
+    }
+    for (let i = 0; i < 1.5 / STEP; i += 1) {
+      world.step(STEP, autopilot(world.state, 'careful'), true);
+      if (world.state.phase === 'over') break;
+      if (world.state.phase === 'upgrade') {
+        world.applyUpgrade(world.state.choices[0].id);
+        break;
+      }
+    }
+    const over = world.state.phase === 'over';
+    return { screen: over ? SCREEN_OVER : SCREEN_PLAY, best: world.state.score };
   }
-  const over = world.state.phase === 'over';
-  return { screen: over ? SCREEN_OVER : SCREEN_PLAY, best: world.state.score };
+  for (let i = 0; i < START_SECONDS / STEP; i += 1) world.step(STEP, autopilot(world.state, 'careful'), true);
+  return { screen: SCREEN_TITLE, best: 0 };
 }
